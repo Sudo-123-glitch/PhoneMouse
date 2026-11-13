@@ -33,6 +33,7 @@ python phone_mouse.py
 ```
 
 If `python` is not recognised, use `py` instead. If Windows Firewall asks, click **Allow** (private networks).
+The terminal displays - the browser to open on mobile and the PIN associated to it
 
 **On a Mac**, use `python3` in place of `python` in the commands above. The first time you start it, macOS blocks it from controlling the mouse and keyboard. Open **System Settings**, then **Privacy & Security**, then **Accessibility**, and switch on the app you started PhoneMouse from (Terminal, iTerm, VS Code). Then stop PhoneMouse and start it again.
 
@@ -43,7 +44,7 @@ The window shows an address and a PIN, like this:
 
         https://192.168.1.5:8443
 
-  3. Enter this PIN:   123456
+  3. Enter the PIN displayed on the terminal
 ```
 
 **4. On your phone**, open that `https://` address in Safari (iPhone) or Chrome (Android).
@@ -58,7 +59,7 @@ Leave the window on the computer open while you use it. Press `Ctrl+C` in that w
 
 | On the phone | What it does |
 |---|---|
-| Hold the big pad and turn / tilt the phone | Moves the cursor |
+| **Hold** the big pad and turn / tilt the phone | Moves the cursor |
 | Quick tap on the big pad | Left click |
 | **Left** / **Right** buttons | Mouse buttons (hold **Left** while pointing to drag) |
 | Swipe on the **SCROLL** strip | Scrolls |
