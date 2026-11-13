@@ -1,14 +1,14 @@
 # PhoneMouse
 
-Use your phone as a wireless **air mouse and keyboard** for a Windows PC.
+Use your phone as a wireless **air mouse and keyboard** for a Windows PC or a Mac.
 Point the phone to move the cursor, tap to click, swipe to scroll, and type with the phone keyboard.
 
-There is no app to install on the phone. It is a web page served by one small Python file running on your PC, and everything stays on your own Wi-Fi.
+There is no app to install on the phone. It is a web page served by one small Python file running on your computer, and everything stays on your own Wi-Fi.
 
 ## What you need
 
-- A **Windows** PC with [Python 3](https://www.python.org/downloads/) (tick **"Add python.exe to PATH"** in the installer)
-- A phone with a motion sensor (built and tested with an **iPhone** and Safari)
+- A **Windows** PC or a **Mac** with [Python 3](https://www.python.org/downloads/) (on Windows, tick **"Add python.exe to PATH"** in the installer)
+- A phone with a motion sensor: an **iPhone** with Safari, or an **Android** phone with Chrome
 - Both on the **same Wi-Fi network**
 
 ## How to run it
@@ -34,23 +34,25 @@ python phone_mouse.py
 
 If `python` is not recognised, use `py` instead. If Windows Firewall asks, click **Allow** (private networks).
 
+**On a Mac**, use `python3` in place of `python` in the commands above. The first time you start it, macOS blocks it from controlling the mouse and keyboard. Open **System Settings**, then **Privacy & Security**, then **Accessibility**, and switch on the app you started PhoneMouse from (Terminal, iTerm, VS Code). Then stop PhoneMouse and start it again.
+
 The window shows an address and a PIN, like this:
 
 ```
-  2. Open Safari on the iPhone and go to:
+  2. Open Safari (iPhone) or Chrome (Android) on the phone and go to:
 
         https://192.168.1.5:8443
 
   3. Enter this PIN:   123456
 ```
 
-**4. On your phone**, open that `https://` address in Safari.
+**4. On your phone**, open that `https://` address in Safari (iPhone) or Chrome (Android).
 
 You will see a warning such as **"This Connection Is Not Private"**. That is expected: PhoneMouse creates its own security certificate on your PC, and browsers do not recognise home-made certificates. Tap **Show Details → visit this website → Visit Website** (in Chrome: **Advanced → Proceed**).
 
-**5. Enter the PIN**, tap **Start**, and tap **Allow** when asked for Motion & Orientation access.
+**5. Enter the PIN**, tap **Start**, and tap **Allow** if asked for Motion & Orientation access (Android does not ask).
 
-Leave the window on the PC open while you use it. Press `Ctrl+C` in that window to stop.
+Leave the window on the computer open while you use it. Press `Ctrl+C` in that window to stop.
 
 ## How to use it
 
@@ -60,8 +62,10 @@ Leave the window on the PC open while you use it. Press `Ctrl+C` in that window 
 | Quick tap on the big pad | Left click |
 | **Left** / **Right** buttons | Mouse buttons (hold **Left** while pointing to drag) |
 | Swipe on the **SCROLL** strip | Scrolls |
-| Text box or ⌨ button | Opens the phone keyboard; what you type appears on the PC |
+| Text box or ⌨ button | Opens the phone keyboard; what you type appears on the computer |
 | Row of small keys | Enter, Backspace, Esc, Tab, arrows, Copy, Paste, Undo, Alt+Tab, volume, and more |
+
+On a Mac the same keys do the Mac version of each action: Copy, Paste, Undo and Select all use Command, **Alt+Tab** becomes **Switch app**, **Win** becomes **Spotlight**, and **F5** becomes **Reload**.
 
 ### Settings (gear icon)
 
@@ -79,12 +83,13 @@ Leave the window on the PC open while you use it. Press `Ctrl+C` in that window 
 ```
 python phone_mouse.py --port 9443     use a different port
 python phone_mouse.py --new-pin       create a new PIN
-python phone_mouse.py --dry-run       print actions instead of controlling the PC
+python phone_mouse.py --dry-run       print actions instead of controlling the computer
 ```
 
 ## Troubleshooting
 
 - **The page will not load on the phone** – check that both devices are on the same Wi-Fi, and that Windows Firewall allowed Python. Guest Wi-Fi networks often block devices from reaching each other.
+- **On a Mac the page works but nothing moves** – Accessibility access is missing. See the Mac note under "How to run it", then restart PhoneMouse.
 - **Pointing does nothing** – motion access was not allowed. Reload the page, tap **Start**, and tap **Allow**. Motion only works over `https://`.
 - **The cursor moves the wrong way** – use the Flip or Swap options in Settings.
 - **Some windows ignore the phone** – apps running as administrator (Task Manager, installers) only accept input if PhoneMouse is also started as administrator.
@@ -94,7 +99,7 @@ python phone_mouse.py --dry-run       print actions instead of controlling the P
 1. `phone_mouse.py` runs a small HTTPS web server on the PC and serves the controller page to the phone.
 2. The page reads the phone's gyroscope (how fast the phone is turning) about 60 times a second and converts that into cursor movement, with filtering for hand shake.
 3. Movement, clicks, scrolling and typed text are sent to the PC over Wi-Fi.
-4. The PC program passes them to Windows as normal mouse and keyboard input.
+4. The program on the computer passes them to Windows or macOS as normal mouse and keyboard input.
 
 ## Security
 
