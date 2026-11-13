@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-PhoneMouse - use your iPhone as a laser-pointer style air mouse + keyboard for Windows.
+PhoneMouse - use your phone (iPhone or Android) as a laser-pointer style air mouse +
+keyboard for a Windows PC or a Mac.
 
-HOW TO RUN (Windows):
-  1. Install Python 3 from https://www.python.org (tick "Add python.exe to PATH").
-  2. Double-click this file, or run:   python phone_mouse.py
+HOW TO RUN:
+  1. Install Python 3 from https://www.python.org (on Windows tick "Add python.exe to PATH").
+  2. Run:   python phone_mouse.py      (on a Mac:   python3 phone_mouse.py)
   3. If Windows Firewall asks, click "Allow" (private networks).
-  4. On your iPhone (same Wi-Fi), open Safari and type the https:// address shown.
-     Safari will warn "This connection is not private" - that's expected for a
-     home-made certificate: tap "Show Details" -> "visit this website" -> "Visit Website".
+     On a Mac, allow your terminal app under System Settings > Privacy & Security > Accessibility.
+  4. On your phone (same Wi-Fi), open Safari or Chrome and type the https:// address shown.
+     The browser will warn "This connection is not private" - that's expected for a
+     home-made certificate: in Safari tap "Show Details" -> "visit this website" -> "Visit Website",
+     in Chrome tap "Advanced" -> "Proceed".
   5. Enter the PIN shown in the console, tap Start, and allow Motion access.
 
 Needs one package (first run only):   python -m pip install cryptography
@@ -192,9 +195,264 @@ class WindowsInput:
         self.key_down(name)
         self.key_up(name)
 
+    def combo(self, keys):
+        for k in keys:
+            self.key_down(k)
+        for k in reversed(keys):
+            self.key_up(k)
+
+
+# =============================================================================
+#  macOS mouse / keyboard control (pure ctypes, no packages)
+# =============================================================================
+
+MAC_KEYCODE = {
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+    "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19,
+    "3": 20, "4": 21, "6": 22, "5": 23, "9": 25, "7": 26, "8": 28, "0": 29, "o": 31,
+    "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+    "enter": 36, "tab": 48, "space": 49, "backspace": 51, "esc": 53,
+    "cmd": 55, "shift": 56, "alt": 58, "ctrl": 59,
+    "f5": 96, "f11": 103, "home": 115, "pageup": 116, "delete": 117, "end": 119,
+    "pagedown": 121, "left": 123, "right": 124, "down": 125, "up": 126,
+}
+MAC_FLAG = {"shift": 0x20000, "ctrl": 0x40000, "alt": 0x80000, "cmd": 0x100000}
+MAC_MEDIA = {"volup": 0, "voldown": 1, "mute": 7, "playpause": 16, "next": 17, "prev": 18}
+
+# The phone sends Windows shortcuts. These are the Mac shortcuts that do the same job.
+MAC_SHORTCUT = {
+    ("win",): ["cmd", "space"],      # Start menu -> Spotlight
+    ("win", "d"): ["f11"],           # Show desktop
+    ("alt", "tab"): ["cmd", "tab"],  # Switch app
+    ("f5",): ["cmd", "r"],           # Reload
+}
+MAC_WHEEL_TO_PIXELS = 0.8   # a Windows wheel notch is 120 units, about 96 pixels of scrolling
+MAC_DOUBLE_CLICK_SECONDS = 0.5
+MAC_CURSOR_TRUST_SECONDS = 0.2
+MAC_DOUBLE_CLICK_PIXELS = 5
+
+
+def mac_keys(keys):
+    """Translate the key names the phone sends into the keys a Mac needs for the same action."""
+    special = MAC_SHORTCUT.get(tuple(keys))
+    if special:
+        return list(special)
+    return ["cmd" if k in ("ctrl", "win") else k for k in keys]
+
+
+class MacEvents:
+    """The macOS calls that read the cursor and post mouse and keyboard events."""
+    MOUSE = {"move": (5, 0), "ldown": (1, 0), "lup": (2, 0), "ldrag": (6, 0),
+             "rdown": (3, 1), "rup": (4, 1), "rdrag": (7, 1)}
+
+    def __init__(self):
+        import ctypes as c
+
+        class CGPoint(c.Structure):
+            _fields_ = [("x", c.c_double), ("y", c.c_double)]
+
+        class CGRect(c.Structure):
+            _fields_ = [("x", c.c_double), ("y", c.c_double), ("w", c.c_double), ("h", c.c_double)]
+
+        self.c, self.CGPoint = c, CGPoint
+        cg = self.cg = c.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        ptr = c.c_void_p
+        for name, restype, argtypes in [
+            ("CGEventCreate", ptr, [ptr]),
+            ("CGEventGetLocation", CGPoint, [ptr]),
+            ("CFRelease", None, [ptr]),
+            ("CGEventCreateMouseEvent", ptr, [ptr, c.c_uint32, CGPoint, c.c_uint32]),
+            ("CGEventSetIntegerValueField", None, [ptr, c.c_uint32, c.c_int64]),
+            ("CGEventPost", None, [c.c_uint32, ptr]),
+            ("CGEventCreateScrollWheelEvent2", ptr, [ptr, c.c_uint32, c.c_uint32, c.c_int32, c.c_int32, c.c_int32]),
+            ("CGEventCreateKeyboardEvent", ptr, [ptr, c.c_uint16, c.c_bool]),
+            ("CGEventSetFlags", None, [ptr, c.c_uint64]),
+            ("CGEventKeyboardSetUnicodeString", None, [ptr, c.c_ulong, c.POINTER(c.c_uint16)]),
+            ("CGMainDisplayID", c.c_uint32, []),
+            ("CGDisplayBounds", CGRect, [c.c_uint32]),
+            ("CGGetActiveDisplayList", c.c_int32, [c.c_uint32, c.POINTER(c.c_uint32), c.POINTER(c.c_uint32)]),
+            ("CGPreflightPostEventAccess", c.c_bool, []),
+            ("CGRequestPostEventAccess", c.c_bool, []),
+        ]:
+            fn = getattr(cg, name)
+            fn.restype, fn.argtypes = restype, argtypes
+
+        # Volume and playback keys only exist as AppKit "system defined" events.
+        c.CDLL("/System/Library/Frameworks/AppKit.framework/AppKit")
+        objc = self.objc = c.CDLL("/usr/lib/libobjc.A.dylib")
+        objc.objc_getClass.restype, objc.objc_getClass.argtypes = ptr, [c.c_char_p]
+        objc.sel_registerName.restype, objc.sel_registerName.argtypes = ptr, [c.c_char_p]
+        objc.objc_autoreleasePoolPush.restype = ptr
+        objc.objc_autoreleasePoolPop.argtypes = [ptr]
+        self.NSEvent = objc.objc_getClass(b"NSEvent")
+        self.sel_make = objc.sel_registerName(
+            b"otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:")
+        self.sel_cgevent = objc.sel_registerName(b"CGEvent")
+        self.make_event = c.CFUNCTYPE(ptr, ptr, ptr, c.c_ulong, CGPoint, c.c_ulong, c.c_double, c.c_long,
+                                      ptr, c.c_short, c.c_long, c.c_long)(("objc_msgSend", objc))
+        self.get_cgevent = c.CFUNCTYPE(ptr, ptr, ptr)(("objc_msgSend", objc))
+
+    def allowed(self):
+        return bool(self.cg.CGPreflightPostEventAccess())
+
+    def ask_permission(self):
+        self.cg.CGRequestPostEventAccess()
+
+    def _post(self, ev):
+        self.cg.CGEventPost(0, ev)
+        self.cg.CFRelease(ev)
+
+    def cursor(self):
+        ev = self.cg.CGEventCreate(None)
+        pt = self.cg.CGEventGetLocation(ev)
+        self.cg.CFRelease(ev)
+        return (pt.x, pt.y)
+
+    def main_display(self):
+        r = self.cg.CGDisplayBounds(self.cg.CGMainDisplayID())
+        return (r.x, r.y, r.w, r.h)
+
+    def desktop(self):
+        """The rectangle that covers every connected screen."""
+        ids = (self.c.c_uint32 * 16)()
+        n = self.c.c_uint32(0)
+        self.cg.CGGetActiveDisplayList(16, ids, self.c.byref(n))
+        rects = [self.cg.CGDisplayBounds(ids[i]) for i in range(n.value)]
+        if not rects:
+            return self.main_display()
+        x0, y0 = min(r.x for r in rects), min(r.y for r in rects)
+        x1, y1 = max(r.x + r.w for r in rects), max(r.y + r.h for r in rects)
+        return (x0, y0, x1 - x0, y1 - y0)
+
+    def post_mouse(self, kind, x, y, clicks=1):
+        etype, button = self.MOUSE[kind]
+        ev = self.cg.CGEventCreateMouseEvent(None, etype, self.CGPoint(x, y), button)
+        self.cg.CGEventSetIntegerValueField(ev, 1, clicks)   # 1 = click count field
+        self._post(ev)
+
+    def post_scroll(self, pixels):
+        self._post(self.cg.CGEventCreateScrollWheelEvent2(None, 0, 1, pixels, 0, 0))   # 0 = pixel units
+
+    def post_key(self, code, down, flags):
+        ev = self.cg.CGEventCreateKeyboardEvent(None, code, down)
+        self.cg.CGEventSetFlags(ev, flags)
+        self._post(ev)
+
+    def post_text(self, ch):
+        data = ch.encode("utf-16-le")
+        units = [int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2)]
+        arr = (self.c.c_uint16 * len(units))(*units)
+        for down in (True, False):
+            ev = self.cg.CGEventCreateKeyboardEvent(None, 0, down)
+            self.cg.CGEventSetFlags(ev, 0)
+            self.cg.CGEventKeyboardSetUnicodeString(ev, len(units), arr)
+            self._post(ev)
+
+    def post_media(self, name):
+        pool = self.objc.objc_autoreleasePoolPush()
+        try:
+            for state in (0xA, 0xB):   # key down, key up
+                ev = self.make_event(self.NSEvent, self.sel_make, 14, self.CGPoint(0, 0), state << 8,
+                                     0.0, 0, None, 8, (MAC_MEDIA[name] << 16) | (state << 8), -1)
+                self.cg.CGEventPost(0, self.get_cgevent(ev, self.sel_cgevent))
+        finally:
+            self.objc.objc_autoreleasePoolPop(pool)
+
+
+class MacInput:
+    """Turns phone actions into macOS events. `events` does the posting, `clock` returns seconds."""
+
+    def __init__(self, events, clock=time.monotonic):
+        self.os, self.clock = events, clock
+        self.pos = None        # where PhoneMouse last put the cursor, and when
+        self.pos_time = 0.0
+        self.held = None       # the button being held, so movement becomes a drag
+        self.wheel_acc = 0.0
+        self.last_click = None  # (button, time, x, y, count) of the latest press
+
+    # --- mouse ---
+    def _where(self):
+        """The cursor position. macOS applies posted moves a moment later, so during a
+        stream of moves the position PhoneMouse set is more current than the one macOS
+        reports. After a pause the real cursor wins, in case a real mouse moved it."""
+        if self.pos is None or self.clock() - self.pos_time > MAC_CURSOR_TRUST_SECONDS:
+            self.pos = self.os.cursor()
+        return self.pos
+
+    def _goto(self, x, y):
+        dx, dy, dw, dh = self.os.desktop()
+        x = max(dx, min(dx + dw - 1, x))
+        y = max(dy, min(dy + dh - 1, y))
+        self.pos, self.pos_time = (x, y), self.clock()
+        self.os.post_mouse(self.held + "drag" if self.held else "move", x, y)
+
+    def move(self, dx, dy):
+        # Positions are fractional: a Retina screen has two pixels per point.
+        x, y = self._where()
+        self._goto(x + dx, y + dy)
+
+    def move_abs(self, nx, ny):
+        """Laser mode: nx/ny are -1..1 from the centre of the main screen (ny uses the
+        same scale as nx, so 1 degree is the same distance both ways)."""
+        mx, my, w, h = self.os.main_display()
+        self._goto(round(mx + w / 2 + nx * w / 2), round(my + h / 2 + ny * w / 2))
+
+    def button(self, which, down):
+        x, y = self._where()
+        if down:
+            count, now, last = 1, self.clock(), self.last_click
+            if (last and last[0] == which and now - last[1] <= MAC_DOUBLE_CLICK_SECONDS
+                    and abs(x - last[2]) <= MAC_DOUBLE_CLICK_PIXELS
+                    and abs(y - last[3]) <= MAC_DOUBLE_CLICK_PIXELS):
+                count = last[4] + 1
+            self.last_click = (which, now, x, y, count)
+            self.held = which
+        else:
+            count = self.last_click[4] if self.last_click and self.last_click[0] == which else 1
+            if self.held == which:
+                self.held = None
+        self.os.post_mouse(which + ("down" if down else "up"), x, y, count)
+
+    def click(self, which):
+        self.button(which, True)
+        self.button(which, False)
+
+    def wheel(self, amount):
+        self.wheel_acc += amount
+        pixels = int(self.wheel_acc * MAC_WHEEL_TO_PIXELS)
+        if pixels:
+            self.wheel_acc -= pixels / MAC_WHEEL_TO_PIXELS
+            self.os.post_scroll(pixels)
+
+    # --- keyboard ---
+    def combo(self, keys):
+        keys = mac_keys(keys)
+        if len(keys) == 1 and keys[0] in MAC_MEDIA:
+            self.os.post_media(keys[0])
+            return
+        flags = 0
+        for k in keys:
+            flags |= MAC_FLAG.get(k, 0)
+            self.os.post_key(MAC_KEYCODE[k], True, flags)
+        for k in reversed(keys):
+            flags &= ~MAC_FLAG.get(k, 0)
+            self.os.post_key(MAC_KEYCODE[k], False, flags)
+
+    def tap(self, name):
+        self.combo([name])
+
+    def text(self, s):
+        for ch in s:
+            if ch == "\n":
+                self.tap("enter")
+            elif ch == "\t":
+                self.tap("tab")
+            else:
+                self.os.post_text(ch)
+
 
 class DryRunInput:
-    """Prints what would happen. Used with --dry-run or on non-Windows systems."""
+    """Prints what would happen. Used with --dry-run or on systems that are not supported."""
     def __init__(self):
         self.acc = [0.0, 0.0]
         self.last = time.time()
@@ -219,6 +477,12 @@ class DryRunInput:
     def key_up(self, name): print("  key up %s" % name)
     def text(self, s): print("  type %r" % s)
     def tap(self, name): print("  key %s" % name)
+
+    def combo(self, keys):
+        for k in keys:
+            self.key_down(k)
+        for k in reversed(keys):
+            self.key_up(k)
 
 
 # =============================================================================
@@ -266,18 +530,16 @@ def apply_message(dev, msg):
             elif kind == "key" and arg in VK:
                 dev.tap(arg)
             elif kind == "combo" and isinstance(arg, list) and arg and all(k in VK for k in arg):
-                for k in arg:
-                    dev.key_down(k)
-                for k in reversed(arg):
-                    dev.key_up(k)
+                dev.combo(arg)
             # "ping" and unknown kinds are ignored
 
 
 # =============================================================================
-#  Web server (HTTPS, so iPhone Safari allows motion sensors)
+#  Web server (HTTPS, so phone browsers allow motion sensors)
 # =============================================================================
 
 class State:
+    host = "windows"
     pin = ""
     dev = None
     seen = set()
@@ -311,7 +573,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.split("?")[0] in ("/", "/index.html"):
-            self._reply(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self._reply(200, page_html(State.host).encode("utf-8"), "text/html; charset=utf-8")
         else:
             self._reply(404, b"not found")
 
@@ -462,18 +724,43 @@ def load_pin(new):
     return pin
 
 
+def device_kind(platform, dry_run):
+    """Which input device to use: "windows", "mac", or "dry" (print only)."""
+    if dry_run:
+        return "dry"
+    return {"win32": "windows", "darwin": "mac"}.get(platform, "dry")
+
+
+def page_html(host):
+    """The phone page, told which kind of computer it controls ("windows" or "mac")."""
+    return PAGE.replace("__HOST__", host)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Use your phone as an air mouse + keyboard.")
     ap.add_argument("--port", type=int, default=8443)
     ap.add_argument("--new-pin", action="store_true", help="generate a new PIN")
-    ap.add_argument("--dry-run", action="store_true", help="print actions instead of controlling the PC")
+    ap.add_argument("--dry-run", action="store_true", help="print actions instead of controlling the computer")
     args = ap.parse_args()
 
-    if sys.platform == "win32" and not args.dry_run:
+    kind = device_kind(sys.platform, args.dry_run)
+    if sys.platform == "darwin":
+        State.host = "mac"
+    if kind == "windows":
         State.dev = WindowsInput()
+    elif kind == "mac":
+        events = MacEvents()
+        if not events.allowed():
+            events.ask_permission()
+            print("[!] macOS is blocking PhoneMouse from controlling the mouse and keyboard.")
+            print("    Open System Settings, then Privacy & Security, then Accessibility,")
+            print("    and switch on the app you started PhoneMouse from (Terminal, iTerm, VS Code).")
+            print("    Then stop PhoneMouse with Ctrl+C and start it again.")
+            print()
+        State.dev = MacInput(events)
     else:
-        if sys.platform != "win32":
-            print("[i] Not on Windows - running in dry-run mode (actions are printed).")
+        if not args.dry_run:
+            print("[i] This system is not supported yet, so actions are printed instead.")
         State.dev = DryRunInput()
 
     ips = local_ips()
@@ -494,15 +781,16 @@ def main():
     print(line)
     print("  PhoneMouse is running")
     print(line)
-    print("  1. Connect your iPhone to the SAME Wi-Fi as this PC.")
-    print("  2. Open Safari on the iPhone and go to:")
+    print("  1. Connect your phone to the SAME Wi-Fi as this computer.")
+    print("  2. Open Safari (iPhone) or Chrome (Android) on the phone and go to:")
     print()
     print("        https://%s:%d" % (ips[0], args.port))
     for other in ips[1:]:
         print("        (or https://%s:%d if that one doesn't load)" % (other, args.port))
     print()
-    print("     On the 'not private' warning tap: Show Details ->")
-    print("     visit this website -> Visit Website.")
+    print("     On the 'not private' warning tap:")
+    print("       Safari: Show Details, then visit this website, then Visit Website.")
+    print("       Chrome: Advanced, then Proceed.")
     print("  3. Enter this PIN:   %s" % State.pin)
     print(line)
     print("  Press Ctrl+C here to stop.")
@@ -624,7 +912,7 @@ font:600 24px ui-monospace,Menlo,monospace;letter-spacing:6px;text-align:center;
 </header>
 
 <div class="typebar">
-  <input id="kb" type="text" placeholder="Tap here to type on your PC..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
+  <input id="kb" type="text" placeholder="Tap here to type on your computer..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
   <button id="kbBtn" aria-label="Open keyboard">&#9000;</button>
 </div>
 
@@ -669,7 +957,7 @@ font:600 24px ui-monospace,Menlo,monospace;letter-spacing:6px;text-align:center;
 <div class="overlay show" id="connect">
   <div class="card">
     <h1>Phone<b>Mouse</b></h1>
-    <p>Enter the PIN shown in the window on your PC.</p>
+    <p>Enter the PIN shown in the window on your computer.</p>
     <input id="pin" type="tel" inputmode="numeric" maxlength="8" placeholder="------">
     <button class="primary" id="start">Start</button>
     <div class="err" id="cerr"></div>
@@ -741,7 +1029,7 @@ function pump(){
   const t0 = performance.now();
   fetch("/e", {method:"POST", headers:{"Content-Type":"application/json"}, body:body, cache:"no-store"})
     .then(r => {
-      if (r.status === 401) { started = false; setStatus("bad","Wrong PIN"); showConnect("That PIN didn't match. Check the PC window."); return; }
+      if (r.status === 401) { started = false; setStatus("bad","Wrong PIN"); showConnect("That PIN didn't match. Check the window on your computer."); return; }
       if (r.status === 429) { setStatus("bad","Locked - wait 1 min"); return; }
       if (!r.ok) throw new Error("http " + r.status);
       const ms = performance.now() - t0;
@@ -749,7 +1037,7 @@ function pump(){
       setStatus("ok", "Connected · " + Math.round(rtt) + " ms");
     })
     .catch(() => {
-      setStatus("bad", "Can't reach PC");
+      setStatus("bad", "Can't reach computer");
       // keep button/key events so nothing gets stuck; drop old ones if it's down for long
       queue = ev.concat(queue).slice(-100);
     })
@@ -1010,7 +1298,12 @@ kb.addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); send(["key","enter"]); kb.value = SEN; last = SEN; }
 });
 
+// The same buttons do the matching Mac action, so they get Mac names.
+const HOST = "__HOST__";
+const MAC_LABELS = {"alt+tab": "Switch app", "win": "Spotlight", "f5": "Reload"};
 document.querySelectorAll("#keys button").forEach(b => {
+  const macLabel = MAC_LABELS[b.dataset.c || b.dataset.k];
+  if (HOST === "mac" && macLabel) b.textContent = macLabel;
   b.addEventListener("click", () => {
     if (b.dataset.k) send(["key", b.dataset.k]);
     else send(["combo", b.dataset.c.split("+")]);
@@ -1025,7 +1318,7 @@ function showConnect(msg){
 $("#pin").value = S.pin || "";
 $("#start").addEventListener("click", async () => {
   const p = $("#pin").value.trim();
-  if (!/^\d{4,8}$/.test(p)) { $("#cerr").textContent = "Enter the PIN from the PC window."; return; }
+  if (!/^\d{4,8}$/.test(p)) { $("#cerr").textContent = "Enter the PIN from the window on your computer."; return; }
   S.pin = p; save();
   if (!window.isSecureContext) { $("#cerr").textContent = "Open this page with https:// (not http://) so motion works."; }
   await enableMotion();
